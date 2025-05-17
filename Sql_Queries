@@ -1,0 +1,131 @@
+-- First create the customer_orders table if it doesn't exist
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'customer_orders')
+BEGIN
+    CREATE TABLE customer_orders (
+        Customer_ID INT NULL,
+        Name VARCHAR(100) NULL,
+        Email VARCHAR(100) NULL,
+        Order_ID INT PRIMARY KEY,
+        Product VARCHAR(50) NULL,
+        Quantity INT NULL,
+        Price DECIMAL(10, 2) NULL,
+        Order_Date DATE NULL,
+        Country VARCHAR(50) NULL,
+        Address VARCHAR(255) NULL
+    );
+END;
+
+-- Insert the cleaned data
+INSERT INTO customer_orders (Customer_ID, Name, Email, Order_ID, Product, Quantity, Price, Order_Date, Country, Address)
+VALUES
+    (181, 'Allison Hill', 'jillrhodes@miller.com', 10000, 'mobile', 2, 679.93, '2023-01-13', 'UK', '386 Shane Harbors, Port Lindachester, KY 20880'),
+    (129, 'Phillip Garcia', 'howardmaurice@yahoo.com', 10001, 'tablet', 1, 593.37, '2023-01-13', 'USA', NULL),
+    (NULL, 'Joe Martinez', 'arnoldmaria@hotmail.com', 10002, 'Mobile Phone', 1, 809.06, '2023-01-15', 'USA', 'Laura Bush'),
+    (NULL, NULL, NULL, 10003, 'MOBILE', -1, 867.82, '2024-05-29', 'USA', '31647 Martin Knoll Apt. 419, New Jessica, NH 50236'),
+    (134, 'Timothy Watts', 'megan03@trujillo.com', 10004, 'mobile', NULL, 277.25, '2024-06-06', 'Canada', NULL),
+    (NULL, 'Tommy Walter', NULL, 10005, 'mobile', NULL, 885.84, '2024-06-10', 'UK', NULL),
+    (NULL, 'Jonathan Wilkerson', 'josephwright@hotmail.com', 10006, 'LAPTOP', 2, 758.22, '2024-06-12', 'UK', NULL),
+    (NULL, 'Kevin Hurst', 'jeffrey28@yahoo.com', 10007, 'laptop', 2, 684.89, '2024-06-16', 'USA', '26916 Carlson Mountain, Tashatown, VA 15515'),
+    (NULL, 'Kimberly Adams', 'cartereric@gmail.com', 10008, 'tablet', 1, 843.25, '2024-06-18', 'UK', NULL),
+    (NULL, 'Deborah Mason', 'harrellkenneth@romero.com', 10009, 'Mobile Phone', 1, 247.06, '2024-06-20', 'United Kingdom', NULL),
+    (NULL, 'Tammy Sellers', 'xsmith@yahoo.com', 10010, 'tablet', NULL, 964.72, '2024-06-22', 'Canada', NULL),
+    (NULL, 'Shawn Arroyo', 'wcabrera@cannon.net', 10011, 'Mobile Phone', 1, 237.81, '2024-06-25', 'United States', '83465 Lam Mission Apt. 331, Andrewside, OR 29365'),
+    (142, 'Michael Brown', 'heathchad@ramirez.com', 10012, 'Tablet', 3, 726.12, '2024-06-28', 'United Kingdom', '76311 Gomez Loop Suite 010, Chandlerville, ID 25432');
+
+-- Verify data insertion
+SELECT * FROM customer_orders;
+
+
+
+EXPLAIN ANALYZE
+SELECT 
+    co.Country, 
+    co.Product, 
+    COUNT(co.Order_ID) AS total_orders,
+    SUM(co.Quantity) AS total_quantity,
+    AVG(co.Price) AS avg_price,
+    (
+        SELECT AVG(sub.Price)
+        FROM customer_orders sub
+        WHERE sub.Product = co.Product
+    ) AS product_avg_price
+FROM customer_orders co
+WHERE co.Order_Date BETWEEN '2023-01-01' AND '2024-12-31'
+AND co.Quantity > 0
+GROUP BY co.Country, co.Product
+HAVING COUNT(co.Order_ID) > 0
+ORDER BY co.Country, total_orders DESC;
+
+
+
+WITH ProductAvgPrices AS (
+    SELECT 
+        Product,
+        AVG(Price) AS product_avg_price
+    FROM customer_orders
+    GROUP BY Product
+),
+OrderStats AS (
+    SELECT
+        co.Country,
+        co.Product,
+        COUNT(co.Order_ID) AS total_orders,
+        SUM(co.Quantity) AS total_quantity,
+        AVG(co.Price) AS avg_price
+    FROM customer_orders co
+    WHERE co.Order_Date BETWEEN '2023-01-01' AND '2024-12-31'
+    AND co.Quantity > 0
+    GROUP BY co.Country, co.Product
+    HAVING COUNT(co.Order_ID) > 0
+)
+SELECT
+    os.Country,
+    os.Product,
+    os.total_orders,
+    os.total_quantity,
+    os.avg_price,
+    pap.product_avg_price
+FROM OrderStats os
+JOIN ProductAvgPrices pap ON os.Product = pap.Product
+ORDER BY os.Country, os.total_orders DESC
+
+
+-- Index for date range filtering and quantity check
+CREATE INDEX IX_customer_orders_Date_Quantity 
+ON customer_orders(Order_Date, Quantity);
+
+-- Composite index to support grouping and sorting
+CREATE INDEX IX_customer_orders_Country_Product 
+ON customer_orders(Country, Product);
+
+-- Include Price in this index to cover more of the query
+CREATE INDEX IX_customer_orders_Product_Price
+ON customer_orders(Product) INCLUDE (Price);
+
+
+WITH filtered_orders AS (
+    SELECT
+        Country, Product, Order_ID, Quantity, Price
+    FROM customer_orders
+    WHERE Order_Date BETWEEN '2023-01-01' AND '2024-12-31'
+    AND Quantity > 0
+),
+product_averages AS (
+    SELECT
+        Product,
+        AVG(Price) AS avg_price
+    FROM customer_orders
+    GROUP BY Product
+)
+SELECT
+    fo.Country,
+    fo.Product,
+    COUNT(fo.Order_ID) AS total_orders,
+    SUM(fo.Quantity) AS total_quantity,
+    AVG(fo.Price) AS avg_price,
+    pa.avg_price AS product_avg_price
+FROM filtered_orders fo
+JOIN product_averages pa ON fo.Product = pa.Product
+GROUP BY fo.Country, fo.Product, pa.avg_price
+HAVING COUNT(fo.Order_ID) > 0
+ORDER BY fo.Country, COUNT(fo.Order_ID) DESC
